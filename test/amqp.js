@@ -12,11 +12,15 @@ describe.skip('open with amqp', function() {
     var mq = slmq.create({provider: 'amqp', port: 1});
     mq.NAME = 'FIRST';
     mq.open(function() {
-      assert(false); // unreachable on failure
-    }).on('error', function(er) {
+      done = null;
+      assert(false, 'unreachable on failure');
+    }).once('error', function(er) {
       dbg('on err', mq.NAME, er);
       assert(er);
-      done();
+      if (done) {
+        done();
+        done = null;
+      }
     });
   });
 });

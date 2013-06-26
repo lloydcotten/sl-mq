@@ -78,7 +78,9 @@ forEachProvider(function(provider, options) {
             // providers that don't have floppy ears.
             er = null;
           }
-          done(er);
+          if (done) {
+            done(er);
+          }
           done = null;
         });
     }
@@ -188,8 +190,21 @@ forEachProvider(function(provider, options) {
     qsub = csub.createSubQueue('leonie');
 
     qsub.subscribe('');
+
+    // XXX(sam) race condition, AMQP doesn't know when subscribe is done.
     csub.close(function() {
-      done();
+      // XXX(sam) for amqp, I think the close can callback, even if there
+      // was an error, because net always emits close after error.
+      if (done) {
+        done();
+      }
+    });
+    csub.once('error', function(er) {
+      if (er.code === 'ECONNRESET') {
+        er = null;
+      }
+      done(er);
+      done = null;
     });
   });
 
@@ -198,18 +213,19 @@ forEachProvider(function(provider, options) {
 
   describe('on topic queue subscribe then publish', function() {
     var cpub, qpub, csub, qsub;
-    var republish;
 
     beforeEach(function() {
       cpub = slmq.create(options).open();
       qpub = cpub.createPubQueue('leonie');
       csub = slmq.create(options).open();
       qsub = csub.createSubQueue('leonie');
-      republish = true;
+      assert(cpub);
+      assert(csub);
+      assert(qpub);
+      assert(qsub);
     });
 
     afterEach(function(done) {
-      republish = false;
       csub.close(function() {
         cpub.close(done);
       });
@@ -227,10 +243,11 @@ forEachProvider(function(provider, options) {
         var obj = 'quelle affaire';
 
         qsub.subscribe(subTopic, function(msg) {
+          var _done = done;
           if(done) {
+            done = null; // after, because needs to be cleared if assert fires
             assert.equal(obj, msg);
-            done();
-            done = null;
+            _done();
           }
         });
 
@@ -239,7 +256,7 @@ forEachProvider(function(provider, options) {
         // Work-around is to keep publishing until test is done.
         setImmediate(republishLoop);
         function republishLoop() {
-          if (republish) {
+          if (done != null) {
             qpub.publish(obj, pubTopic);
             setTimeout(republishLoop, 50);
           }
